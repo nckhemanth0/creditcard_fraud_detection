@@ -19,6 +19,11 @@ from pyspark.sql.types import (
 )
 from pyspark.ml import PipelineModel
 import os
+try:
+    from kafka.admin import KafkaAdminClient, NewTopic
+except Exception:
+    KafkaAdminClient = None
+    NewTopic = None
 
 def main():
     print("=" * 60)
@@ -33,20 +38,51 @@ def main():
     
     # Initialize Spark Session with Kafka and Cassandra support
     print("\n[1/5] Initializing Spark Streaming...")
-    spark = SparkSession.builder \
-        .appName("FraudDetection-Streaming") \
+    spark = (SparkSession.builder
+        .appName("FraudDetection-Streaming")
         .config("spark.jars.packages", 
                 "org.apache.spark:spark-sql-kafka-0-10_2.12:3.4.1,"
-                "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1") \
-        .config("spark.cassandra.connection.host", CASSANDRA_HOST) \
-        .config("spark.cassandra.connection.port", "9042") \
-        .config("spark.driver.memory", "2g") \
-        .config("spark.sql.streaming.checkpointLocation", "/tmp/spark-checkpoint") \
-        .master("local[*]") \
+                "com.datastax.spark:spark-cassandra-connector_2.12:3.4.1")
+        .config("spark.cassandra.connection.host", CASSANDRA_HOST)
+        .config("spark.cassandra.connection.port", "9042")
+        .config("spark.driver.memory", "2g")
+        # Force local FS for all streaming/checkpointing
+        .config("spark.hadoop.fs.defaultFS", "file:///")
+        .config("spark.sql.streaming.checkpointLocation", f"file://{os.path.abspath('/tmp/spark-checkpoint')}")
+        .master("local[*]")
         .getOrCreate()
+    )
     
     spark.sparkContext.setLogLevel("ERROR")
     print("✓ Spark Streaming Session initialized")
+
+    # Ensure Kafka topic exists (helpful for dev environments)
+    def ensure_kafka_topic(broker, topic, partitions=1, replication=1):
+        if KafkaAdminClient is None:
+            print("⚠ kafka-python not available, skipping topic creation check")
+            return False
+        try:
+            admin = KafkaAdminClient(bootstrap_servers=broker, client_id="topic-creator", request_timeout_ms=10000)
+            topics = admin.list_topics()
+            if topic in topics:
+                print(f"✓ Kafka topic '{topic}' already exists")
+                admin.close()
+                return True
+            else:
+                new_topic = NewTopic(name=topic, num_partitions=partitions, replication_factor=replication)
+                admin.create_topics([new_topic])
+                print(f"✓ Created Kafka topic '{topic}' (partitions={partitions}, replication={replication})")
+                admin.close()
+                return True
+        except Exception as e:
+            print(f"⚠ Could not create/verify Kafka topic '{topic}': {e}")
+            return False
+
+    # Try to create topic (best-effort, does not abort on failure)
+    try:
+        ensure_kafka_topic(KAFKA_BROKER, KAFKA_TOPIC, partitions=1, replication=1)
+    except Exception as e:
+        print(f"⚠ Topic creation helper raised an exception: {e}")
     
     # Define schema for incoming Kafka messages
     transaction_schema = StructType([
@@ -88,14 +124,13 @@ def main():
     print(f"  Broker: {KAFKA_BROKER}")
     print(f"  Topic: {KAFKA_TOPIC}")
     
-    kafka_df = spark \
-        .readStream \
-        .format("kafka") \
-        .option("kafka.bootstrap.servers", KAFKA_BROKER) \
-        .option("subscribe", KAFKA_TOPIC) \
-        .option("startingOffsets", "latest") \
-        .option("failOnDataLoss", "false") \
-        .load()
+    kafka_df = (spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", KAFKA_BROKER)
+        .option("subscribe", KAFKA_TOPIC)
+        .option("startingOffsets", "earliest")
+        .option("failOnDataLoss", "false")
+        .load())
     
     print("✓ Connected to Kafka stream")
     
