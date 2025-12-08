@@ -52,4 +52,5 @@ checkpoint/
 # Environment
 .env
 .env.local
+.ipynb_checkpoints
 
