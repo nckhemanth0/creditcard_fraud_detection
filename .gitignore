@@ -1,0 +1,55 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+
+# Big Data - Large Files (Don't push to Git!)
+dataset/*.csv
+data/*.parquet
+models/*.pkl
+models/spark_fraud_model/
+*.parquet
+*.snappy
+
+# Spark
+spark-warehouse/
+derby.log
+metastore_db/
+
+# Docker
+.dockerignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+/tmp/
+logs/
+
+# Airflow
+airflow-logs/
+airflow.cfg
+
+# Checkpoints
+/tmp/spark-checkpoint/
+checkpoint/
+
+# Environment
+.env
+.env.local
+
