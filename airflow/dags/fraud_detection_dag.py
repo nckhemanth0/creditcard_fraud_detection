@@ -128,11 +128,11 @@ validate_model = BashOperator(
         python3 -c "
 from pyspark.ml import PipelineModel
 try:
-    model = PipelineModel.load('models/spark_fraud_model')
-    print('✓ Model validated successfully!')
-    print(f'  Stages: {len(model.stages)}')
+    m = PipelineModel.load('models/spark_fraud_model')
+    print('Model validated successfully!')
+    print('Stages:', len(m.stages))
 except Exception as e:
-    print(f'✗ Model validation failed: {e}')
+    print('Model validation failed:', e)
     exit(1)
 "
     ''',
