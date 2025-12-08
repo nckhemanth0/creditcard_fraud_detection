@@ -1,0 +1,28 @@
+CREDIT CARD FRAUD DETECTION - ML TRAINING REPORT
+======================================================================
+
+Timestamp: 2025-12-08_14-40-51
+Spark Version: 3.5.1
+
+Performance Metrics
+-------------------
+Accuracy   : 97.3832%
+Precision  : 97.3908%
+Recall     : 97.3832%
+F1-Score   : 97.3524%
+AUC-ROC    : 99.3340%
+
+Confusion Matrix
+----------------
+0	0	5749
+0	1	39
+1	0	161
+1	1	1694
+
+Top Feature Importances
+------------------------
+amt                  : 0.618765
+trans_hour           : 0.194485
+category_idx         : 0.130240
+age                  : 0.021403
+city_pop             : 0.010601
