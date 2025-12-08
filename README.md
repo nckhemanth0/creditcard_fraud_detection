@@ -168,7 +168,7 @@ docker exec -it fraud-kafka kafka-topics --bootstrap-server localhost:9092 --cre
 The training script writes a text report to `reports/` named like:
 
 ```
-reports/spark_fraud_training_report_2025-12-08_14-40-51.txt
+reports/
 ```
 
 The report includes:
