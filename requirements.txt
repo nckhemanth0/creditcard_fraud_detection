@@ -1,0 +1,30 @@
+# Big Data Technologies
+pyspark==3.4.1
+py4j==0.10.9.7
+
+# Kafka Integration
+kafka-python==2.0.2
+
+# Cassandra Integration
+cassandra-driver==3.29.0
+
+# Data Processing
+pandas==2.0.3
+numpy==1.24.3
+
+# Machine Learning (Spark MLlib is included in PySpark)
+# These are for comparison/fallback only
+scikit-learn==1.3.0
+imbalanced-learn==0.11.0
+
+# Model Serialization
+joblib==1.3.1
+
+# Dashboard
+flask==2.3.2
+flask-socketio==5.3.4
+python-socketio==5.8.0
+eventlet==0.33.3
+
+# Utilities
+python-dotenv==1.0.0

@@ -1,0 +1,165 @@
+version: '3.8'
+
+services:
+  # ============================================
+  # STORAGE LAYER
+  # ============================================
+  cassandra:
+    image: cassandra:3.11
+    container_name: fraud-cassandra
+    ports:
+      - "9042:9042"
+    environment:
+      - CASSANDRA_CLUSTER_NAME=FraudDetection
+      - MAX_HEAP_SIZE=1G
+      - HEAP_NEWSIZE=400M
+    volumes:
+      - cassandra-data:/var/lib/cassandra
+    healthcheck:
+      test: ["CMD-SHELL", "cqlsh -e 'SELECT now() FROM system.local;'"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+    networks:
+      - fraud-network
+
+  # ============================================
+  # MESSAGE STREAMING - KAFKA
+  # ============================================
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.0.1
+    container_name: fraud-zookeeper
+    platform: linux/amd64
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+    networks:
+      - fraud-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.0.1
+    container_name: fraud-kafka
+    platform: linux/amd64
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    networks:
+      - fraud-network
+
+  # ============================================
+  # BIG DATA PROCESSING - APACHE SPARK
+  # ============================================
+  spark-master:
+    image: bitnami/spark:3.5
+    container_name: fraud-spark-master
+    environment:
+      - SPARK_MODE=master
+      - SPARK_MASTER_HOST=spark-master
+      - SPARK_RPC_AUTHENTICATION_ENABLED=no
+      - SPARK_RPC_ENCRYPTION_ENABLED=no
+    ports:
+      - "8081:8080"  # Spark Master Web UI
+      - "7077:7077"  # Spark Master Port
+    volumes:
+      - ./:/app
+      - spark-data:/opt/bitnami/spark/work
+    networks:
+      - fraud-network
+
+  spark-worker:
+    image: bitnami/spark:3.5
+    container_name: fraud-spark-worker
+    depends_on:
+      - spark-master
+    environment:
+      - SPARK_MODE=worker
+      - SPARK_MASTER_URL=spark://spark-master:7077
+      - SPARK_WORKER_MEMORY=2G
+      - SPARK_WORKER_CORES=2
+    volumes:
+      - ./:/app
+      - spark-data:/opt/bitnami/spark/work
+    networks:
+      - fraud-network
+
+  # ============================================
+  # WORKFLOW AUTOMATION - APACHE AIRFLOW
+  # ============================================
+  postgres:
+    image: postgres:13
+    container_name: fraud-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    networks:
+      - fraud-network
+
+  airflow-webserver:
+    image: apache/airflow:2.7.0-python3.10
+    container_name: fraud-airflow-webserver
+    depends_on:
+      - postgres
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__WEBSERVER__SECRET_KEY: 'fraud-detection-secret'
+      _PIP_ADDITIONAL_REQUIREMENTS: pyspark cassandra-driver kafka-python pandas
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./:/opt/airflow/project
+      - airflow-logs:/opt/airflow/logs
+    ports:
+      - "8090:8080"  # Airflow Web UI
+    command: >
+      bash -c "
+        airflow db init &&
+        airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true &&
+        airflow webserver
+      "
+    networks:
+      - fraud-network
+
+  airflow-scheduler:
+    image: apache/airflow:2.7.0-python3.10
+    container_name: fraud-airflow-scheduler
+    depends_on:
+      - airflow-webserver
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@postgres/airflow
+      AIRFLOW__CORE__FERNET_KEY: ''
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      _PIP_ADDITIONAL_REQUIREMENTS: pyspark cassandra-driver kafka-python pandas
+    volumes:
+      - ./airflow/dags:/opt/airflow/dags
+      - ./:/opt/airflow/project
+      - airflow-logs:/opt/airflow/logs
+    command: airflow scheduler
+    networks:
+      - fraud-network
+
+networks:
+  fraud-network:
+    driver: bridge
+
+volumes:
+  cassandra-data:
+  postgres-data:
+  airflow-logs:
+  spark-data:

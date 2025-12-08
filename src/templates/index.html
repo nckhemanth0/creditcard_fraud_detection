@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraud Detection Dashboard</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+        }
+        .header {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            text-align: center;
+            border-bottom: 2px solid #e94560;
+        }
+        .header h1 { color: #e94560; font-size: 2em; }
+        .header p { color: #888; margin-top: 5px; }
+        .container { max-width: 1400px; margin: 0 auto; padding: 20px; }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        .stat-card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: transform 0.3s;
+        }
+        .stat-card:hover { transform: translateY(-5px); }
+        .stat-card.fraud { border-color: #e94560; }
+        .stat-card h3 { color: #888; font-size: 0.9em; margin-bottom: 10px; }
+        .stat-card .value { font-size: 2.5em; font-weight: bold; }
+        .stat-card.fraud .value { color: #e94560; }
+        .stat-card.safe .value { color: #0f3460; }
+        .main-content { display: grid; grid-template-columns: 2fr 1fr; gap: 20px; }
+        .panel {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .panel h2 { color: #e94560; margin-bottom: 15px; font-size: 1.2em; }
+        .fraud-list { max-height: 400px; overflow-y: auto; }
+        .fraud-item {
+            background: rgba(233,69,96,0.1);
+            border-left: 3px solid #e94560;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 0 10px 10px 0;
+        }
+        .fraud-item .amount { color: #e94560; font-size: 1.3em; font-weight: bold; }
+        .fraud-item .merchant { color: #fff; margin: 5px 0; }
+        .fraud-item .details { color: #888; font-size: 0.85em; }
+        .alert-banner {
+            display: none;
+            background: linear-gradient(90deg, #e94560, #ff6b6b);
+            color: white;
+            padding: 15px;
+            text-align: center;
+            font-weight: bold;
+            animation: pulse 1s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        .chart-container { height: 300px; }
+    </style>
+</head>
+<body>
+    <div class="alert-banner" id="alertBanner">🚨 NEW FRAUD DETECTED!</div>
+    
+    <div class="header">
+        <h1>🔒 Credit Card Fraud Detection</h1>
+        <p>Real-time Transaction Monitoring Dashboard</p>
+    </div>
+    
+    <div class="container">
+        <div class="stats-grid">
+            <div class="stat-card fraud">
+                <h3>🚨 Fraud Detected</h3>
+                <div class="value" id="fraudCount">0</div>
+            </div>
+            <div class="stat-card safe">
+                <h3>✓ Safe Transactions</h3>
+                <div class="value" id="safeCount">0</div>
+            </div>
+            <div class="stat-card">
+                <h3>👥 Customers</h3>
+                <div class="value" id="customerCount">0</div>
+            </div>
+            <div class="stat-card fraud">
+                <h3>⚠️ Fraud Rate</h3>
+                <div class="value" id="fraudRate">0%</div>
+            </div>
+        </div>
+        
+        <div class="main-content">
+            <div class="panel">
+                <h2>📊 Transaction Analysis</h2>
+                <div class="chart-container">
+                    <canvas id="fraudChart"></canvas>
+                </div>
+            </div>
+            
+            <div class="panel">
+                <h2>🚨 Recent Fraud Alerts</h2>
+                <div class="fraud-list" id="fraudList">
+                    <p style="color: #888;">Loading...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const socket = io();
+        let chart;
+        
+        // Initialize chart
+        function initChart() {
+            const ctx = document.getElementById('fraudChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Fraud', 'Safe'],
+                    datasets: [{
+                        data: [0, 0],
+                        backgroundColor: ['#e94560', '#0f3460'],
+                        borderWidth: 0
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: { labels: { color: '#fff' } }
+                    }
+                }
+            });
+        }
+        
+        // Fetch stats
+        async function fetchStats() {
+            try {
+                const res = await fetch('/api/stats');
+                const data = await res.json();
+                document.getElementById('fraudCount').textContent = data.fraud_count.toLocaleString();
+                document.getElementById('safeCount').textContent = data.non_fraud_count.toLocaleString();
+                document.getElementById('customerCount').textContent = data.customer_count.toLocaleString();
+                document.getElementById('fraudRate').textContent = data.fraud_rate + '%';
+                
+                if (chart) {
+                    chart.data.datasets[0].data = [data.fraud_count, data.non_fraud_count];
+                    chart.update();
+                }
+            } catch (e) { console.error(e); }
+        }
+        
+        // Fetch recent fraud
+        async function fetchRecentFraud() {
+            try {
+                const res = await fetch('/api/recent_fraud');
+                const data = await res.json();
+                const list = document.getElementById('fraudList');
+                
+                if (data.length === 0) {
+                    list.innerHTML = '<p style="color: #888;">No fraud detected yet</p>';
+                    return;
+                }
+                
+                list.innerHTML = data.map(f => `
+                    <div class="fraud-item">
+                        <div class="amount">$${f.amount.toFixed(2)}</div>
+                        <div class="merchant">${f.merchant}</div>
+                        <div class="details">Card: ****${f.cc_num} | ${f.category} | ${f.time}</div>
+                    </div>
+                `).join('');
+            } catch (e) { console.error(e); }
+        }
+        
+        // Socket events
+        socket.on('fraud_alert', (data) => {
+            const banner = document.getElementById('alertBanner');
+            banner.style.display = 'block';
+            setTimeout(() => banner.style.display = 'none', 3000);
+            fetchStats();
+            fetchRecentFraud();
+        });
+        
+        // Initialize
+        initChart();
+        fetchStats();
+        fetchRecentFraud();
+        setInterval(fetchStats, 5000);
+        setInterval(fetchRecentFraud, 5000);
+    </script>
+</body>
+</html>
+
