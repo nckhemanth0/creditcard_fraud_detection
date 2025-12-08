@@ -181,28 +181,7 @@ The report includes:
 - Top feature importances
 - A CSV sample of predictions for quick inspection
 
-Use that file directly for your project report / appendix.
 
 ---
 
-## Want me to compare a PDF or other reference?
 
-If you have a PDF (e.g., a paper or assignment brief) you want me to compare to this project, please upload the PDF into the workspace or paste it here. I will read the PDF and:
-
-- Summarize its approach and highlight key points
-- State whether (and where) the repo implements the same approach
-- Show any gaps and recommend code or documentation changes to align the project to the paper
-
----
-
-## Final notes
-
-- I added several defensive improvements to the codebase (local file forcing, Cassandra/timeout handling, Kafka topic helper, evaluation fallback, and a detailed report writer) to make the project more reproducible and robust for local testing.
-- If you want, I can now:
-  - Add the `dashboard.stats` precomputed counts table and ETL step to maintain it (durable fix for dashboard aggregation)
-  - Run quick diagnostics on your Docker containers (if you want me to execute docker commands)
-  - Read and compare a PDF you upload
-
----
-
-Made with care — tell me if you'd like any edits to this README or if you want me to add the `dashboard.stats` feature next.
