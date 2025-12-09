@@ -1,191 +1,101 @@
 # Credit Card Fraud Detection — Big Data Pipeline
 
-End-to-end demo: batch ETL, distributed model training, real-time scoring, and benchmarking utilities.
+End-to-end pipeline: Spark ETL, Spark ML training, Kafka streaming inference, and a Flask dashboard for real-time fraud alerts.
 
-This repository demonstrates a realistic credit-card fraud detection pipeline built with big-data tools:
+## Overview
 
-- Data ingestion and ETL with Apache Spark (PySpark)
-- Storage in Apache Cassandra (with Parquet fallback for local development)
-- Batch model training using Spark MLlib (Random Forest)
-- Real-time scoring using Spark Structured Streaming + Kafka
-- Simple web dashboard (Flask + Socket.IO) for live alerts and metrics
-- Added benchmarking and load-testing utilities to reproduce performance metrics
+Technologies:
+- Apache Spark (PySpark) for ETL and ML
+- Apache Kafka for streaming ingress
+- Apache Cassandra for storage
+- Flask + Socket.IO dashboard
 
----
+Project layout:
+- `src/spark_data_import.py` — ETL: load CSVs, transform features, write to Cassandra (Parquet fallback)
+- `src/spark_ml_training.py` — Spark ML pipeline training; writes a detailed report to `reports/`
+- `src/spark_streaming_detector.py` — Kafka → Spark Streaming → ML → Cassandra alerts
+- `src/kafka_producer.py` — sends test transactions to Kafka
+- `src/dashboard.py` — web UI and APIs; pushes real-time alerts via Socket.IO
+- `src/benchmark.py` — Pandas vs Spark ETL benchmark (writes JSON + TXT under `reports/`)
+- `src/kafka_load_test.py` — Kafka producer load test (writes JSON + TXT under `reports/`)
+- `dataset/` — input CSVs (`fraudTrain.csv`, `fraudTest.csv`)
+- `models/` — trained Spark model
+- `reports/` — training/benchmark/load-test reports
+- `run.sh` — convenience runner
 
-**Contents (high level)**
+## Quick Start
 
-- `src/` — main application code
-  - `spark_data_import.py` — ETL: load CSVs, transform data, write to Cassandra (Parquet fallback). Includes chunked writes with retries to avoid overwhelming single-node Cassandra.
-  - `spark_ml_training.py` — feature engineering, Spark ML pipeline, training, metrics, and detailed report writer (writes reports to `reports/`).
-  - `spark_streaming_detector.py` — Spark Structured Streaming job for real-time scoring (Kafka → ML → Cassandra). Emits per-record processing metrics to Kafka (`creditcardProcessed`) to enable E2E latency measurement.
-  - `kafka_producer.py` — helper to produce synthetic transactions to Kafka topic.
-  - `dashboard.py` — Flask + Socket.IO dashboard and APIs (now polls today's `fraud_alert` partition and emits SocketIO `fraud_alert` events with recent alerts for near real-time UI updates).
-  - `benchmark.py` — compares Pandas vs Spark ETL/aggregation and writes reports to `reports/`.
-  - `kafka_load_test.py` — configurable Kafka producer load-test tool; can measure end-to-end latency when `creditcardProcessed` metrics are emitted by streaming and can sample local host resources (requires `psutil`).
-
-- `dataset/` (or `data/`) — CSV inputs used by ETL
-- `reports/` — training, benchmark and load-test reports (JSON + text summaries)
-- `models/` — serialized Spark model saved by the training job
-- `run.sh` — helper script to run pipeline/stream/producer/dashboard commands
-- `docker-compose.yml` — definitions for Cassandra, Kafka, Zookeeper, and optional Spark services
-- `requirements.txt` — Python dependencies for local scripts
-
----
-
-**Quick Start — Fresh machine**
-
-Prerequisites
-
-- Docker & Docker Compose (recommended) OR a running Kafka + Cassandra cluster
-- Python 3.10+ (virtual environment recommended)
-- Java (if you run Spark locally outside containers)
-
-1) Clone the repo
+Prereqs: Docker, Python 3.10+, Java (for local Spark).
 
 ```bash
-git clone <repo-url>
-cd creditcard_fraud_detection
-```
-
-2) Bring up infrastructure (recommended: Docker Compose)
-
-```bash
+# 1) Start infra (Cassandra, Kafka, Zookeeper)
 docker compose up -d
-```
 
-3) Create & activate Python virtualenv and install Python deps
-
-```bash
-python3 -m venv venv
-source venv/bin/activate
+# 2) Python env
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-```
 
-4) Import data (ETL) — this writes data into Cassandra and saves Parquet fallback
-
-```bash
+# 3) ETL → Cassandra (Parquet fallback saved to ./data)
 python src/spark_data_import.py
-# or use the convenience runner
-# ./run.sh import
-```
 
-5) Train the model and generate the detailed training report
-
-```bash
+# 4) Train model and generate report in ./reports
 python src/spark_ml_training.py
-# report will be written to `reports/`
-```
 
-6) Start the streaming detector (in a new terminal)
-
-```bash
+# 5) Start streaming in Terminal A
 python src/spark_streaming_detector.py
-# or ./run.sh stream
-```
 
-7) Start a producer to send transactions (in a separate terminal)
-
-```bash
+# 6) Start producer in Terminal B
 python src/kafka_producer.py
-# or ./run.sh producer
-```
 
-8) Start the dashboard (in another terminal)
-
-```bash
+# 7) Start dashboard in Terminal C (http://localhost:8080)
 python src/dashboard.py
-# or ./run.sh dashboard
-# Open http://localhost:8080
 ```
 
-9) Stop everything when finished
+## Benchmarking & Load Testing
 
+Benchmark (Pandas vs Spark):
 ```bash
-docker compose down
+python src/benchmark.py
+# See reports/benchmark_*.json and .txt
 ```
 
----
+Kafka load test:
+```bash
+python src/kafka_load_test.py --rate 100 --duration 30
+# See reports/loadtest_*.json and .txt
+```
 
-**New utilities: Benchmarking and Load Testing**
+## Notes & Tips
+- If Cassandra times out on large writes, ETL falls back to Parquet; re-ingest later or adjust chunk sizes.
+- The dashboard reads recent alerts from `fraud_alert` and pushes Socket.IO events for near real-time updates.
+- For higher Kafka throughput, consider increasing producer `batch_size`/`linger_ms` and topic partitions.
 
-Two helper scripts were added to help evaluate performance and produce reproducible reports in `reports/`.
+## License
+This project is for educational/demo purposes.
 
-- `src/benchmark.py`
-  - Compares Pandas vs Spark for ETL and simple aggregations on the local dataset.
-  - Outputs: `reports/benchmark_YYYYMMDDTHHMMSSZ.json` and `.txt` with timings and throughput.
-  - Run: `python src/benchmark.py`
+## Dataset
+- Source: Kaggle — Credit Card Fraud Detection by Kartik2112
+- Link: https://www.kaggle.com/datasets/kartik2112/fraud-detection
+- Files used: `fraudTrain.csv`, `fraudTest.csv` (placed under `dataset/`)
+- Schema highlights:
+   - Transaction fields such as `trans_num`, `trans_date_trans_time`, `merchant`, `category`, `amt`
+   - Cardholder attributes (`cc_num`, `first`, `last`, `gender`, `dob`, `job`, address/location)
+   - Merchant coordinates (`merch_lat`, `merch_long`) and cardholder location (`lat`, `long`)
+   - Target label: `is_fraud` (0/1)
 
-- `src/kafka_load_test.py`
-  - Configurable Kafka producer for load testing and basic end-to-end latency measurement.
-  - Key options:
-    - `--rate` target messages/second (default: 100)
-    - `--duration` test duration in seconds (default: 30)
-    - `--measure-e2e` enable consumer on `creditcardProcessed` to measure end-to-end latency (streaming must emit metrics)
-    - `--sample-resources` sample host CPU/memory/net (requires `psutil`)
-  - Example:
-    ```bash
-    python src/kafka_load_test.py --rate 100 --duration 30 --measure-e2e --sample-resources
-    ```
-  - Outputs: `reports/loadtest_YYYYMMDDTHHMMSSZ.json` and `.txt` with actual rate, errors and optional latency/resource stats.
+### About the Dataset
+- Size: ~1.85 million transactions spanning 2019-01-01 to 2020-12-31
+- Customers: ~1,000 cardholders; Merchants: ~800
+- Nature: Simulated transactions (legitimate and fraud) generated via Sparkov Data Generation (by Brandon Harris) and consolidated into a standard CSV format.
 
-These tools help reproduce metrics like sustained/peak rates, daily volume extrapolation, end-to-end latencies, and resource utilization on your environment.
+Simulation details (per Kaggle description):
+- Uses predefined lists of merchants, customers, and categories, combined with Faker to synthesize realistic records.
+- Profiles (e.g., adults_2550_female_rural.json) define distributions such as min/max transactions per day, weekday distribution, and amount distributions (mean/std) by category.
+- Transactions were generated across multiple profiles and merged to better reflect varied user behavior.
 
----
+Note: We do not own the simulator; attribution to Brandon Harris (Sparkov Data Generation) per Kaggle page.
 
-**Streaming changes for measurement**
-
-- The streaming job now emits per-record processing metrics (including `sent_ts` when present and `processed_ts`) to a Kafka topic named `creditcardProcessed` as JSON. This allows `kafka_load_test.py --measure-e2e` to compute producer→processing latencies and per-batch processing timings.
-
-**Dashboard changes**
-
-- The dashboard monitor now queries the `fraud_alert` partition for today's `trans_day` and emits Socket.IO `fraud_alert` events that include `count`, `new`, and a `recent` array of alert rows so the UI updates immediately when new alerts arrive.
-
----
-
-**How to evaluate and reproduce production-like metrics**
-
-- Throughput
-  - Use `src/kafka_load_test.py` to drive producers at increasing `--rate` until the consumer/streaming side is saturated. Use `--measure-e2e` to collect processed message timestamps and compute producer→processing latency.
-  - Extrapolate daily volume: `sustained_rate * 86,400` seconds.
-
-- Latency
-  - The streaming job emits processed timestamps; `kafka_load_test.py --measure-e2e` computes median and percentile latencies from producer `sent_ts` to streaming `processed_ts`.
-  - Measure PySpark batch processing time (median) in the reports and Spark UI.
-
-- Resource utilization
-  - Use `--sample-resources` in `kafka_load_test.py` to collect CPU/memory/network numbers on the host running the producer.
-  - For cluster-level metrics (Kafka brokers, Spark executors, Cassandra nodes) use your monitoring stack (Prometheus/Grafana) or `docker stats` across containers.
-
-**Tuning tips (quick)**
-
-- Kafka
-  - Increase `batch_size`, `linger_ms`, and enable compression (`compression_type='lz4'`) to improve producer throughput.
-  - Add partitions and distribute consumers to scale parallelism.
-
-- Spark
-  - Tune `spark.sql.shuffle.partitions` to match CPU cores; increase driver/executor memory for heavy ETL.
-  - Use fewer, larger micro-batches to reduce scheduling overhead if low latency is not required.
-
-- Cassandra
-  - Avoid full-table `COUNT(*)`. Use partitioned queries or maintain counters for aggregates.
-  - Reduce per-write concurrency if single-node timeouts occur; chunk and sequential writes were added to the import script.
-
----
-
-If you want, I can add a test runner that performs a multi-stage test (ramp the producer, measure e2e latencies, sample resources, and summarize results) and commits a consolidated report to `reports/`.
-
----
-
-**Contact / Next steps**
-
-If you'd like me to:
-
-- Add a consolidated runner for production-like tests, or
-- Tune Kafka/Spark parameters automatically from the collected data, or
-- Add Prometheus metrics exports for the streaming and dashboard components
-
-Tell me which and I'll implement it.
+If you download from Kaggle, place both CSVs in `dataset/` so the ETL and benchmarking scripts can find them.
 # Credit Card Fraud Detection — Big Data Pipeline
 
 > End-to-end demo: batch ETL, distributed model training, and real-time scoring.
