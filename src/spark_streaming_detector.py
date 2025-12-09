@@ -11,8 +11,9 @@ Architecture:
 from pyspark.sql import SparkSession
 from pyspark.sql.functions import (
     col, from_json, to_timestamp, year, current_date,
-    hour, struct, to_json, when, lit, current_timestamp
+    hour, struct, to_json, when, lit, current_timestamp, date_format
 )
+from pyspark.ml.functions import vector_to_array
 from pyspark.sql.types import (
     StructType, StructField, StringType, DoubleType,
     IntegerType, TimestampType
@@ -24,6 +25,7 @@ try:
 except Exception:
     KafkaAdminClient = None
     NewTopic = None
+from pyspark.ml.linalg import VectorUDT
 
 def main():
     print("=" * 60)
@@ -163,22 +165,47 @@ def main():
             if use_ml_model:
                 # Apply ML model for prediction
                 predictions = model.transform(batch_df)
+
+                # Robust extraction of the positive-class probability.
+                # The `probability` column can be a VectorUDT or a struct
+                # with a nested `values` array depending on Spark / model.
+                prob_col = lit(0.0)
+                if 'probability' in predictions.columns:
+                    prob_field = [f for f in predictions.schema.fields if f.name == 'probability'][0]
+                    dt = prob_field.dataType
+                    try:
+                        if isinstance(dt, VectorUDT):
+                            prob_col = vector_to_array(col('probability')).getItem(1)
+                        else:
+                            if hasattr(dt, 'fields') and any(f.name == 'values' for f in dt.fields):
+                                prob_col = col('probability.values').getItem(1)
+                            else:
+                                prob_col = lit(0.0)
+                    except Exception:
+                        prob_col = lit(0.0)
+
+                # Add `trans_day` (partition key expected by Cassandra)
+                predictions = predictions.withColumn("trans_day", date_format(col("trans_time"), "yyyy-MM-dd"))
+
                 fraud_alerts = predictions.filter(col("prediction") == 1.0).select(
-                    col("cc_num"),
-                    col("trans_num"),
+                    col("trans_day"),
                     col("trans_time"),
+                    col("trans_num"),
+                    col("cc_num"),
                     col("merchant"),
                     col("category"),
                     col("amt"),
                     lit(1.0).alias("is_fraud"),
-                    col("probability").getItem(1).alias("prediction_score")
+                    prob_col.alias("prediction_score")
                 )
             else:
                 # Use is_fraud label directly
+                batch_df = batch_df.withColumn("trans_day", date_format(col("trans_time"), "yyyy-MM-dd"))
                 fraud_alerts = batch_df.filter(col("is_fraud") == 1).select(
-                    col("cc_num"),
-                    col("trans_num"),
+                    col("trans_day"),
                     col("trans_time"),
+                    col("trans_num"),
+                    col("cc_num"),
                     col("merchant"),
                     col("category"),
                     col("amt"),

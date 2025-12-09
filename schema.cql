@@ -53,3 +53,18 @@ CREATE TABLE IF NOT EXISTS kafka_offset (
   offset bigint
 );
 
+-- Table to store fraud alerts for dashboard/monitoring.
+-- Partition by day to keep partitions bounded and allow efficient "recent" queries.
+CREATE TABLE IF NOT EXISTS fraud_alert (
+  trans_day text,
+  trans_time timestamp,
+  trans_num text,
+  cc_num text,
+  merchant text,
+  category text,
+  amt double,
+  is_fraud double,
+  prediction_score double,
+  PRIMARY KEY ((trans_day), trans_time, trans_num)
+) WITH CLUSTERING ORDER BY (trans_time DESC);
+

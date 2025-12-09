@@ -39,10 +39,16 @@ def main():
     # Load test data
     print("\n[1/3] Loading test transactions...")
     try:
-        df = pd.read_csv('dataset/fraudTest.csv')
+        # prefer `dataset/` if present, otherwise `data/`
+        if os.path.exists('dataset/fraudTest.csv'):
+            csv_path = 'dataset/fraudTest.csv'
+        else:
+            csv_path = 'data/fraudTest.csv'
+
+        df = pd.read_csv(csv_path)
         if 'Unnamed: 0' in df.columns:
             df = df.drop(columns=['Unnamed: 0'])
-        print(f"✓ Loaded {len(df):,} transactions")
+        print(f"✓ Loaded {len(df):,} transactions from {csv_path}")
     except FileNotFoundError:
         print("Error: fraudTest.csv not found!")
         return

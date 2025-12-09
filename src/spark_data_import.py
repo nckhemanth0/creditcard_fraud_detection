@@ -11,6 +11,7 @@ from pyspark.sql.types import DoubleType
 from py4j.protocol import Py4JJavaError
 import math
 from pathlib import Path
+import os
 
 
 # =============================================================
@@ -74,13 +75,26 @@ def main():
     # ---------------------------------------------------------
     print("\n[2/7] Loading dataset with Spark SQL...")
 
-    train_df = spark.read.csv("dataset/fraudTrain.csv", header=True, inferSchema=True)
-    test_df = spark.read.csv("dataset/fraudTest.csv", header=True, inferSchema=True)
+    # Choose CSV directory: prefer `dataset/` (original layout) then `data/` (alternate)
+    def csv_path(fname: str) -> str:
+        for prefix in ("dataset", "data"):
+            p = os.path.join(prefix, fname)
+            if os.path.exists(p):
+                return p
+        # fallback to given relative path (will raise later)
+        return os.path.join("data", fname)
 
-    # FIX: Remove accidental empty column
-    for df in [train_df, test_df]:
-        if "_c0" in df.columns:
-            df = df.drop("_c0")
+    train_csv = csv_path("fraudTrain.csv")
+    test_csv = csv_path("fraudTest.csv")
+
+    train_df = spark.read.csv(train_csv, header=True, inferSchema=True)
+    test_df = spark.read.csv(test_csv, header=True, inferSchema=True)
+
+    # FIX: Remove accidental empty column if present (ensure reassignment)
+    if "_c0" in train_df.columns:
+        train_df = train_df.drop("_c0")
+    if "_c0" in test_df.columns:
+        test_df = test_df.drop("_c0")
 
     # Union datasets
     transactions_df = train_df.union(test_df)
@@ -202,25 +216,77 @@ def main():
     print(f"  Fraud transactions: {fraud_count:,}")
     print(f"  Non-fraud transactions: {non_fraud_count:,}")
 
-    # Safe write wrapper
-    def safe_write(df, table):
-        try:
-            df.write \
-                .format("org.apache.spark.sql.cassandra") \
-                .options(table=table, keyspace="creditcard") \
-                .mode("append") \
-                .save()
-            print(f"✓ Saved to Cassandra table: {table}")
-        except Exception as e:
-            print(f"⚠ Cassandra write failed → Saving Parquet for {table}")
-            Path("data").mkdir(exist_ok=True)
-            df.write.mode("overwrite").parquet(f"data/{table}.parquet")
-            print(f"✓ Parquet saved: data/{table}.parquet")
-            print("Reason:", str(e))
+    # Safe, chunked write wrapper to avoid overwhelming Cassandra.
+    def safe_write(df, table, chunk_size=50000, max_retries=5, max_chunks=200):
+        total = df.count()
+        if total == 0:
+            print(f"✓ No rows to write for {table}")
+            return
+
+        # If small enough, write in one shot
+        if total <= chunk_size:
+            try:
+                df.repartition(4).write \
+                    .format("org.apache.spark.sql.cassandra") \
+                    .options(table=table, keyspace="creditcard") \
+                    .mode("append") \
+                    .save()
+                print(f"✓ Saved to Cassandra table: {table} ({total:,} rows)")
+                return
+            except Exception as e:
+                print(f"⚠ Cassandra write failed for {table}: {e}")
+                print(f"⚠ Falling back to Parquet for {table}")
+                Path("data").mkdir(exist_ok=True)
+                df.write.mode("overwrite").parquet(f"data/{table}.parquet")
+                print(f"✓ Parquet saved: data/{table}.parquet")
+                return
+
+        # Large dataset: split into sequential chunks using randomSplit.
+        # Cap the number of chunks via `max_chunks` to avoid too many tiny writes.
+        num_splits = int(math.ceil(total / float(chunk_size)))
+        num_splits = max(1, min(num_splits, max_chunks))
+        print(f"→ Writing {total:,} rows to {table} in {num_splits} sequential chunk(s) (max_chunks={max_chunks})")
+        fractions = [1.0 / num_splits] * num_splits
+        splits = df.randomSplit(fractions, seed=42)
+
+        written = 0
+        for idx, split_df in enumerate(splits, start=1):
+            if split_df.count() == 0:
+                continue
+            attempt = 0
+            while attempt < max_retries:
+                try:
+                    rows = split_df.count()
+                    split_df.repartition(4).write \
+                        .format("org.apache.spark.sql.cassandra") \
+                        .options(table=table, keyspace="creditcard") \
+                        .mode("append") \
+                        .save()
+                    written += rows
+                    print(f"  ✓ Chunk {idx}/{num_splits} written ({rows:,} rows)")
+                    break
+                except Exception as e:
+                    attempt += 1
+                    wait = attempt * 5
+                    print(f"  ⚠ Chunk {idx} write failed (attempt {attempt}/{max_retries}): {e}")
+                    print(f"    Retrying in {wait}s...")
+                    import time
+                    time.sleep(wait)
+            else:
+                # Failed after retries: bail out and save Parquet fallback
+                print(f"⚠ Failed to write chunk {idx} after {max_retries} attempts. Saving Parquet fallback for {table}")
+                Path("data").mkdir(exist_ok=True)
+                df.write.mode("overwrite").parquet(f"data/{table}.parquet")
+                print(f"✓ Parquet saved: data/{table}.parquet")
+                return
+
+        print(f"✓ Completed write to {table}: requested {total:,} | written {written:,}")
 
     safe_write(customers_df, "customer")
     safe_write(fraud_transactions, "fraud_transaction")
-    safe_write(non_fraud_transactions, "non_fraud_transaction")
+    # Write non-fraud in a limited number of chunks (8-16 recommended).
+    # Use `max_chunks=16` to keep the number of sequential writes bounded.
+    safe_write(non_fraud_transactions, "non_fraud_transaction", max_chunks=16)
     
     print("\n" + "=" * 60)
     print("✓ SPARK SQL DATA IMPORT COMPLETE!")

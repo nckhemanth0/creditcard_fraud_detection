@@ -16,6 +16,7 @@ models/*.pkl
 models/spark_fraud_model/
 *.parquet
 *.snappy
+reports
 
 # Spark
 spark-warehouse/

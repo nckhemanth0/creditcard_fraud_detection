@@ -194,8 +194,34 @@
             const banner = document.getElementById('alertBanner');
             banner.style.display = 'block';
             setTimeout(() => banner.style.display = 'none', 3000);
-            fetchStats();
-            fetchRecentFraud();
+
+            // If the server provided counts and recent alerts in the payload,
+            // update the UI immediately without extra HTTP requests.
+            try {
+                if (data && typeof data.count !== 'undefined') {
+                    document.getElementById('fraudCount').textContent = Number(data.count).toLocaleString();
+                    // If chart exists, update fraud slice and keep safe slice as-is
+                    if (chart) {
+                        const safe = chart.data.datasets[0].data[1] || 0;
+                        chart.data.datasets[0].data = [Number(data.count), safe];
+                        chart.update();
+                    }
+                }
+
+                // If recent alerts included, render them (server sends most recent first)
+                if (data && Array.isArray(data.recent) && data.recent.length > 0) {
+                    const list = document.getElementById('fraudList');
+                    const itemsHtml = data.recent.map(f => `\n                        <div class="fraud-item">\n                            <div class="amount">$${(f.amount||0).toFixed(2)}</div>\n                            <div class="merchant">${f.merchant||''}</div>\n                            <div class="details">Card: ****${f.cc_num||''} | ${f.category||''} | ${f.time||''}</div>\n                        </div>\n                    `).join('');
+                    // Prepend recent to existing list for visibility
+                    list.innerHTML = itemsHtml + list.innerHTML;
+                } else {
+                    // fallback to full fetch when payload doesn't include recent
+                    fetchRecentFraud();
+                }
+
+                // Optionally refresh aggregate stats in background
+                setTimeout(fetchStats, 1000);
+            } catch (e) { console.error('Socket handler error', e); }
         });
         
         // Initialize
