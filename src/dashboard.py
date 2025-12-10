@@ -276,13 +276,13 @@ def get_map_data():
     """Fetch recent fraud locations for the heatmap/markers"""
     session = get_cassandra_session()
     try:
-        # Get last 100 predicted frauds (if they have location)
+        # Get fraud locations - increased limit for better visualization
         # Note: fraud_alert doesn't have location in schema, so we use fraud_transaction 
         # which represents the ground truth/historical view for the map foundation.
         rows = session.execute("""
             SELECT merch_lat, merch_long, merchant, amt 
             FROM fraud_transaction 
-            LIMIT 100
+            LIMIT 1000
         """)
         
         points = []
