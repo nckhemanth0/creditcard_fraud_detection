@@ -22,7 +22,8 @@ def create_producer():
                 bootstrap_servers=[KAFKA_BROKER],
                 value_serializer=lambda v: json.dumps(v).encode('utf-8'),
                 acks='all',
-                retries=3
+                retries=3,
+                api_version=(2, 8, 1)
             )
             print(f"✓ Connected to Kafka broker: {KAFKA_BROKER}")
             return producer

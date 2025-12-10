@@ -24,7 +24,7 @@ def main():
     parser.add_argument("--rate", type=int, default=100, help="Messages per second")
     parser.add_argument("--duration", type=int, default=30, help="Test duration in seconds")
     parser.add_argument("--topic", type=str, default=os.getenv('KAFKA_TOPIC', 'creditcardTransaction'))
-    parser.add_argument("--broker", type=str, default=os.getenv('KAFKA_BROKER', 'localhost:9092'))
+    parser.add_argument("--broker", type=str, default=os.getenv('KAFKA_BROKER', '127.0.0.1:9094'))
     args = parser.parse_args()
 
     try:
@@ -56,7 +56,8 @@ def main():
             value_serializer=lambda v: json.dumps(v).encode('utf-8'),
             acks=1,
             linger_ms=5,
-            batch_size=16384
+            batch_size=16384,
+            api_version=(2, 8, 1)  # Fix for UnrecognizedBrokerVersion
         )
         print(f'✓ Connected to {args.broker}')
     except Exception as e:

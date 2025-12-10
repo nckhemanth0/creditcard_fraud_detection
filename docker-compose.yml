@@ -11,7 +11,7 @@ services:
     volumes:
       - cassandra-data:/var/lib/cassandra
     healthcheck:
-      test: ["CMD-SHELL", "cqlsh -e 'SELECT now() FROM system.local;'"]
+      test: [ "CMD-SHELL", "cqlsh -e 'SELECT now() FROM system.local;'" ]
       interval: 10s
       timeout: 5s
       retries: 10
@@ -35,13 +35,13 @@ services:
     depends_on:
       - zookeeper
     ports:
-      - "9092:9092"
+      - "9094:9092"
       - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:29092,PLAINTEXT_HOST://127.0.0.1:9094
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
     networks:
@@ -50,12 +50,12 @@ services:
   spark-master:
     image: apache/spark:3.5.3-java17
     container_name: fraud-spark-master
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master"]
+    command: [ "/opt/spark/bin/spark-class", "org.apache.spark.deploy.master.Master" ]
     environment:
       - SPARK_MASTER_HOST=spark-master
     ports:
-      - "8081:8080"   # Spark Master Web UI
-      - "7077:7077"   # Spark Master Port
+      - "8081:8080" # Spark Master Web UI
+      - "7077:7077" # Spark Master Port
     volumes:
       - ./:/app
     networks:
@@ -66,7 +66,7 @@ services:
     container_name: fraud-spark-worker
     depends_on:
       - spark-master
-    command: ["/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077"]
+    command: [ "/opt/spark/bin/spark-class", "org.apache.spark.deploy.worker.Worker", "spark://spark-master:7077" ]
     environment:
       - SPARK_WORKER_MEMORY=2G
       - SPARK_WORKER_CORES=2

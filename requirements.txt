@@ -28,3 +28,4 @@ eventlet==0.33.3
 
 # Utilities
 python-dotenv==1.0.0
+rich==13.7.0
